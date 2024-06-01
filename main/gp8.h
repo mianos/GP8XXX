@@ -148,12 +148,47 @@ class GP8I2C : public GP8 {
 	}
 
     
-    /**
-     * @fn store
-     * @brief Save the set voltage inside the chip
-     * @return NONE
-     */
-    void store(void);
+    void store() {
+        // Ensure the I2C interface is properly initialized
+        if (!i2c_master_num) {
+            ESP_LOGE(TAG, "I2C interface is not initialized");
+            return;
+        }
+
+        // Buffer to hold commands
+        uint8_t commands[10];
+        int index = 0;
+
+        // Start the sequence to store settings
+        commands[index++] = GP8XXX_STORE_TIMING_HEAD;
+        commands[index++] = GP8XXX_STORE_TIMING_ADDR;
+        commands[index++] = GP8XXX_STORE_TIMING_CMD1;
+
+        // Send the first sequence
+        i2c_master_write_to_device(i2c_master_num, _deviceAddr, commands, index, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+        
+        // Prepare the second sequence
+        index = 0;
+        commands[index++] = _deviceAddr << 1; // Assuming this needs to be shifted for addressing
+        for (int i = 0; i < 8; ++i) {
+            commands[index++] = GP8XXX_STORE_TIMING_CMD2;
+        }
+
+        // Send the second sequence
+        i2c_master_write_to_device(i2c_master_num, _deviceAddr, commands, index, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+
+        // Delay for the specified interval
+        vTaskDelay(pdMS_TO_TICKS(GP8XXX_STORE_TIMING_DELAY));
+
+        // Final command sequence
+        index = 0;
+        commands[index++] = GP8XXX_STORE_TIMING_HEAD;
+        commands[index++] = GP8XXX_STORE_TIMING_ADDR;
+        commands[index++] = GP8XXX_STORE_TIMING_CMD2;
+
+        // Execute the final sequence
+        i2c_master_write_to_device(i2c_master_num, _deviceAddr, commands, index, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+    }
     
 
   protected:
