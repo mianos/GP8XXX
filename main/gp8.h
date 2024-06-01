@@ -124,11 +124,13 @@ class GP8I2C : public GP8 {
 		case eOutputRange5V:    
 		  writeRegister(GP8XXX_CONFIG_CURRENT_REG >> 1, &data, 1);
 		  currentRange = range;
+		  ESP_LOGI(TAG, "Setting output range to 5V");
 		  break;
 		case eOutputRange10V:  
-		  data=0x11;
+		  data = 0x11;
 		  writeRegister(GP8XXX_CONFIG_CURRENT_REG >> 1, &data, 1);
 		  currentRange = range;
+		  ESP_LOGI(TAG, "Setting output range to 10V");
 		  break;
 		default:
 		  break;
@@ -141,23 +143,23 @@ class GP8I2C : public GP8 {
 		case RESOLUTION_15_BIT:
 			switch (currentRange) {
 			case eOutputRange5V:
-				oval = voltage * (double)RESOLUTION_15_BIT / 5.0;
+				oval = voltage * (double)0x7FFF / 5.0;
 				break;
 			case eOutputRange10V:
-				oval = voltage * (double)RESOLUTION_15_BIT / 10.0;
+				oval = voltage * (double)0x7FFF / 10.0;
 				break;
 			default:
 				ESP_LOGE(TAG, "usupported range");
 				return ESP_ERR_INVALID_ARG;
 			}
+			sendData(oval << 1l, 0);
+			ESP_LOGI(TAG, "10V output value %u", oval);
 			break;
 		default:
 			ESP_LOGE(TAG, "usupported resolution");
 			return ESP_ERR_INVALID_ARG;
 			break;
 		}
-		ESP_LOGI(TAG, "output value %u\n", oval);
-		sendData(oval, 0);
 		return ESP_OK;
 	}
 
