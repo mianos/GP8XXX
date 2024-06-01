@@ -1,4 +1,3 @@
-
 #pragma once
 #include <cstring>
 #include <string>
@@ -23,7 +22,7 @@ class GP8 {
     virtual void setDACOutVoltage(uint16_t data, uint8_t channel) = 0;   
 
   protected:
-    uint16_t _voltage = 0;
+	eOutPutRange_t currentRange = eOutputRange5V;
 };
 
 class GP8I2C : public GP8 {
@@ -120,18 +119,46 @@ class GP8I2C : public GP8 {
 	}
 
 	void setDACOutRange(eOutPutRange_t range) {
-	  uint8_t data=0x00;
-	  switch(range){
+	  uint8_t data = 0x00;
+	  switch (range) {
 		case eOutputRange5V:    
-		  writeRegister(GP8XXX_CONFIG_CURRENT_REG>>1,&data,1);
+		  writeRegister(GP8XXX_CONFIG_CURRENT_REG >> 1, &data, 1);
+		  currentRange = range;
 		  break;
 		case eOutputRange10V:  
 		  data=0x11;
-		  writeRegister(GP8XXX_CONFIG_CURRENT_REG>>1,&data,1);
+		  writeRegister(GP8XXX_CONFIG_CURRENT_REG >> 1, &data, 1);
+		  currentRange = range;
 		  break;
 		default:
 		  break;
 	  }
+	}
+	esp_err_t setVoltage(float voltage) {
+		//  VOUT=5V* DATA/0x7FFF VOUT=10V* DATA/0x7FFF
+		uint16_t oval;
+		switch (_resolution) {
+		case RESOLUTION_15_BIT:
+			switch (currentRange) {
+			case eOutputRange5V:
+				oval = voltage * (double)RESOLUTION_15_BIT / 5.0;
+				break;
+			case eOutputRange10V:
+				oval = voltage * (double)RESOLUTION_15_BIT / 10.0;
+				break;
+			default:
+				ESP_LOGE(TAG, "usupported range");
+				return ESP_ERR_INVALID_ARG;
+			}
+			break;
+		default:
+			ESP_LOGE(TAG, "usupported resolution");
+			return ESP_ERR_INVALID_ARG;
+			break;
+		}
+		ESP_LOGI(TAG, "output value %u\n", oval);
+		sendData(oval, 0);
+		return ESP_OK;
 	}
 
 	void setDACOutVoltage(uint16_t voltage, uint8_t channel) {
