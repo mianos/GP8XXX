@@ -1,5 +1,6 @@
 #pragma once
 #include <string.h>
+#include <string>
 #include "driver/i2c.h"
 #include "esp_log.h"
 #include "esp_err.h"
@@ -52,80 +53,113 @@ class GP8I2C: public GP8 {
     #define I2C_CYCLE_BEFORE                    1     ///< The first half cycle 2 of the total I2C communication cycle
     #define I2C_CYCLE_AFTER                     2     ///< The second half cycle 3 of the total I2C communication cycle
 
-    /**
-     * @brief DFRobot_GP8XXX constructor
-     * @param resolution resolution
-     * @param deviceAddr I2C address
-     * @param pWire I2C object
-     */
-    GP8I2C(uint16_t resolution, uint8_t deviceAddr = DFGP8XXX_I2C_DEVICEADDR, int sda_io_num=22, int scl_io_num=23,
+    GP8I2C(uint16_t resolution=RESOLUTION_15_BIT, uint8_t deviceAddr = DFGP8XXX_I2C_DEVICEADDR, int sda_io_num=22, int scl_io_num=23,
 			i2c_port_t i2c_master_num=static_cast<i2c_port_t>(0))
 		: _resolution(resolution),
 		  _deviceAddr(deviceAddr),
 	      i2c_master_num(i2c_master_num) {
 
-        i2c_config_t conf;
+        i2c_config_t conf{};
         conf.mode = I2C_MODE_MASTER;
         conf.sda_io_num = static_cast<gpio_num_t>(sda_io_num);  // SDA pin
         conf.scl_io_num = static_cast<gpio_num_t>(scl_io_num);  // SCL pin
         conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
         conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
-        conf.master.clk_speed = 100000;  // 100 kHz
+        conf.master.clk_speed = 10000;
         i2c_param_config(i2c_master_num, &conf);
         i2c_driver_install(i2c_master_num, conf.mode, 0, 0, 0);
     }
 
-    /**
-     * @fn setDACOutRange
-     * @brief Set the DAC output range
-     * @param range DAC output range
-     * @n     eOutputRange0_5V(0-5V)
-     * @n     eOutputRange0_10V(0-10V)
-     * @return NONE
-     */
 
-	void setDACOutRange(eOutPutRange_t range) {
-		uint8_t data = 0x00;
-		uint8_t reg = GP8XXX_CONFIG_CURRENT_REG >> 1; // Adjust this as needed based on your hardware setup
-		switch (range) {
-			case eOutputRange5V:
-				break;
-			case eOutputRange10V:
-				data = 0x11;
-				break;
-			default:
-				return; // Exit the function if the range is not handled
+	esp_err_t writeRegister(uint8_t reg, uint8_t* pBuf, size_t size) {
+		if (pBuf == NULL) {
+			return ESP_ERR_INVALID_ARG;
 		}
 
-		uint8_t write_buf[2] = {reg, data};
-		esp_err_t ret = i2c_master_write_to_device(i2c_master_num, _deviceAddr, write_buf, sizeof(write_buf), I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
-		if (ret != ESP_OK) {
-			// Handle error
-			ESP_LOGE(TAG, "Failed to write DAC output range");
+		constexpr size_t max_buffer_size = 10;
+		if (size > max_buffer_size - 1) {
+			return ESP_ERR_INVALID_SIZE;
 		}
+		uint8_t data[max_buffer_size];
+
+		data[0] = reg;  // First byte is the register address
+		memcpy(&data[1], pBuf, size);  // Copy the data to be written after the register address
+
+		// Log the data in hex and binary format
+		char buf[4];  // Increase buffer size to 4 to hold three characters and a null terminator
+		std::string hexString = "Hex: ";
+		std::string binString = "Bin: ";
+		for (size_t i = 0; i < size + 1; ++i) {
+			snprintf(buf, sizeof(buf), "%02X ", data[i]);
+			hexString += buf;
+
+			binString += "0b";
+			for (int bit = 7; bit >= 0; --bit) {
+				binString += (data[i] & (1 << bit)) ? '1' : '0';
+			}
+			binString += " ";
+		}
+	char addrBuf[20];  // Buffer for the device address
+		snprintf(addrBuf, sizeof(addrBuf), "Address: 0x%02X", _deviceAddr);
+
+	   ESP_LOGI("I2C_Write", "%s", addrBuf);
+		ESP_LOGI("I2C_Write", "%s", hexString.c_str());
+		ESP_LOGI("I2C_Write", "%s", binString.c_str());
+
+		return i2c_master_write_to_device(i2c_master_num, _deviceAddr, data, size + 1, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
 	}
 
-    /**
-     * @fn setDACOutVoltage
-     * @brief Set different channel output DAC values
-     * @param data value corresponding to the voltage value
-     * @param channel output channel
-     * @n 0: Channel 0 (valid when PWM0 output is configured)
-     * @n 1: Channel 1 (valid when PWM1 output is configured)
-     * @n 2: All channels (valid when configuring dual channel output)
-     * @return NONE
-     */
+	esp_err_t sendData(uint16_t data, uint8_t channel) {
+		uint8_t buff[4] = {uint8_t(data & 0xFF), uint8_t(data >> 8), uint8_t(data & 0xFF), uint8_t(data >> 8)};
+		uint8_t write_buf[5];
+		uint8_t reg;
+		size_t len = 2;
+
+		if (channel == 0) {
+			reg = GP8XXX_CONFIG_CURRENT_REG;
+		} else if (channel == 1) {
+			reg = GP8XXX_CONFIG_CURRENT_REG << 1;
+		} else if (channel == 2) {
+			reg = GP8XXX_CONFIG_CURRENT_REG;
+			len = 4; // Length is 4 for channel 2
+		} else {
+			ESP_LOGE(TAG, "Unsupported channel %d", (unsigned)channel);
+			return ESP_ERR_INVALID_ARG;
+		}
+
+		write_buf[0] = reg;
+		memcpy(&write_buf[1], buff, len); // Copy data into write buffer starting after the register byte
+
+		auto ret = i2c_master_write_to_device(i2c_master_num, _deviceAddr, write_buf, len + 1, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+		ESP_RETURN_ON_ERROR(ret, TAG, "Failed to write data to device");
+		return ESP_OK;
+	}
+
+	void setDACOutRange(eOutPutRange_t range) {
+	  uint8_t data=0x00;
+	  switch(range){
+		case eOutputRange5V:    
+		  writeRegister(GP8XXX_CONFIG_CURRENT_REG>>1,&data,1);
+		  break;
+		case eOutputRange10V:  
+		  data=0x11;
+		  writeRegister(GP8XXX_CONFIG_CURRENT_REG>>1,&data,1);
+		  break;
+		default:
+		  break;
+	  }
+	}
+
 	void setDACOutVoltage(uint16_t voltage, uint8_t channel) {
 		if (voltage > _resolution) {
 			voltage = _resolution;
+			ESP_LOGI(TAG, "Voltage capped to %d", (int)_resolution);
 		}
-
 		if (_resolution == RESOLUTION_12_BIT) {
 			voltage = voltage << 4; // Align voltage to the upper bits
 		} else if (_resolution == RESOLUTION_15_BIT) {
 			voltage = voltage << 1; // Align voltage to the upper bits
 		}
-
 		sendData(voltage, channel);
 	}
 
@@ -139,27 +173,6 @@ class GP8I2C: public GP8 {
     
 
   protected:
-	esp_err_t sendData(uint16_t data, uint8_t channel) {
-		uint8_t buff[4] = {uint8_t(data & 0xFF), uint8_t(data >> 8), uint8_t(data & 0xFF), uint8_t(data >> 8)};
-		uint8_t write_buf[5]; // Adjust size if needed
-		uint8_t reg;
-		size_t len = 2; // Default length
-
-		if (channel == 0) {
-			reg = GP8XXX_CONFIG_CURRENT_REG;
-		} else if (channel == 1) {
-			reg = GP8XXX_CONFIG_CURRENT_REG << 1;
-		} else if (channel == 2) {
-			reg = GP8XXX_CONFIG_CURRENT_REG;
-			len = 4; // Length is 4 for channel 2
-		}
-
-		write_buf[0] = reg;
-		memcpy(&write_buf[1], buff, len); // Copy data into write buffer starting after the register byte
-
-		esp_err_t ret = i2c_master_write_to_device(i2c_master_num, _deviceAddr, write_buf, len + 1, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
-		ESP_RETURN_ON_ERROR(ret, TAG, "Failed to write data to device");
-	}
 
     uint8_t writeRegister(uint8_t reg, void* pBuf, size_t size);
   
