@@ -1,75 +1,59 @@
+
 #pragma once
-#include <string.h>
+#include <cstring>
 #include <string>
 #include "driver/i2c.h"
 #include "esp_log.h"
 #include "esp_err.h"
 #include "esp_check.h"
 
-#define TAG "DFRobot_GP8XXX_IIC"
-#define I2C_MASTER_TIMEOUT_MS 1000
+constexpr char TAG[] = "DFRobot_GP8XXX_IIC";
+constexpr int I2C_MASTER_TIMEOUT_MS = 1000;
 
 class GP8 {
   public:
-    /**
-     * @enum eOutPutRange_t
-     * @brief Analog voltage output range select
-     */
-    typedef enum {
-      eOutputRange2_5V  = 0,
-      eOutputRange5V  = 1,
+    enum eOutPutRange_t {
+      eOutputRange2_5V = 0,
+      eOutputRange5V = 1,
       eOutputRange10V = 2,
-      eOutputRangeVCC   = 3
-    } eOutPutRange_t;
+      eOutputRangeVCC = 3
+    };
 
     GP8() = default;
+    virtual void setDACOutVoltage(uint16_t data, uint8_t channel) = 0;   
 
-    /**
-     * @fn setDACOutVoltage
-     * @brief Set different channel output DAC values
-     * @param data requires the output voltage value
-     * @param channel output channel 0: channel 0; 1: Channel 1; 2: All channels
-     * @return NONE
-     */
-    virtual void setDACOutVoltage(uint16_t data, uint8_t channel) =0;   
   protected:
     uint16_t _voltage = 0;
 };
 
-class GP8I2C: public GP8 {
+class GP8I2C : public GP8 {
   public:
+    static constexpr uint16_t RESOLUTION_12_BIT = 0x0FFF;
+    static constexpr uint16_t RESOLUTION_15_BIT = 0x7FFF;
+    static constexpr uint8_t GP8XXX_CONFIG_CURRENT_REG = 0x02;
+    static constexpr uint8_t DFGP8XXX_I2C_DEVICEADDR = 0x58;
 
-    #define RESOLUTION_12_BIT 0x0FFF
-    #define RESOLUTION_15_BIT 0x7FFF
-    #define GP8XXX_CONFIG_CURRENT_REG                  uint8_t(0x02)
-    #define DFGP8XXX_I2C_DEVICEADDR                    uint8_t(0x58)   //!< i2c address
+    static constexpr uint8_t GP8XXX_STORE_TIMING_HEAD = 0x02;
+    static constexpr uint8_t GP8XXX_STORE_TIMING_ADDR = 0x10;
+    static constexpr uint8_t GP8XXX_STORE_TIMING_CMD1 = 0x03;
+    static constexpr uint8_t GP8XXX_STORE_TIMING_CMD2 = 0x00;
+    static constexpr int GP8XXX_STORE_TIMING_DELAY = 10;
 
-    #define GP8XXX_STORE_TIMING_HEAD            0x02  ///< Store function timing start head
-    #define GP8XXX_STORE_TIMING_ADDR            0x10  ///< The first address for entering store timing
-    #define GP8XXX_STORE_TIMING_CMD1            0x03  ///< The command 1 to enter store timing
-    #define GP8XXX_STORE_TIMING_CMD2            0x00  ///< The command 2 to enter store timing
-    #define GP8XXX_STORE_TIMING_DELAY           10    ///< Store procedure interval delay time: 10ms, more than 7ms
-    #define I2C_CYCLE_TOTAL                     5     ///< Total I2C communication cycle
-    #define I2C_CYCLE_BEFORE                    1     ///< The first half cycle 2 of the total I2C communication cycle
-    #define I2C_CYCLE_AFTER                     2     ///< The second half cycle 3 of the total I2C communication cycle
-
-    GP8I2C(uint16_t resolution=RESOLUTION_15_BIT, uint8_t deviceAddr = DFGP8XXX_I2C_DEVICEADDR, int sda_io_num=22, int scl_io_num=23,
-			i2c_port_t i2c_master_num=static_cast<i2c_port_t>(0))
-		: _resolution(resolution),
-		  _deviceAddr(deviceAddr),
-	      i2c_master_num(i2c_master_num) {
-
+    GP8I2C(uint16_t resolution = RESOLUTION_15_BIT, uint8_t deviceAddr = DFGP8XXX_I2C_DEVICEADDR, int sda_io_num = 22, int scl_io_num = 23,
+           i2c_port_t i2c_master_num = static_cast<i2c_port_t>(0))
+        : _resolution(resolution),
+          _deviceAddr(deviceAddr),
+          i2c_master_num(i2c_master_num) {
         i2c_config_t conf{};
         conf.mode = I2C_MODE_MASTER;
-        conf.sda_io_num = static_cast<gpio_num_t>(sda_io_num);  // SDA pin
-        conf.scl_io_num = static_cast<gpio_num_t>(scl_io_num);  // SCL pin
+        conf.sda_io_num = static_cast<gpio_num_t>(sda_io_num);
+        conf.scl_io_num = static_cast<gpio_num_t>(scl_io_num);
         conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
         conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
         conf.master.clk_speed = 10000;
         i2c_param_config(i2c_master_num, &conf);
         i2c_driver_install(i2c_master_num, conf.mode, 0, 0, 0);
     }
-
 
 	esp_err_t writeRegister(uint8_t reg, uint8_t* pBuf, size_t size) {
 		if (pBuf == NULL) {
